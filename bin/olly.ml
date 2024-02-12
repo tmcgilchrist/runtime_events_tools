@@ -8,9 +8,9 @@ type trace_format = Json | Fuchsia
 
 type ts = { mutable start_time : float; mutable end_time : float }
 
-let total_gc_time = ref 0
+let total_gc_time = Atomic.make 0
 let wall_time = { start_time = 0.; end_time = 0. }
-let total_cpu_time = ref 0.
+let total_cpu_time = Atomic.make 0.
 let domain_gc_times = Array.make 128 0
 
 let lifecycle _domain_id _ts lifecycle_event _data =
@@ -19,7 +19,7 @@ let lifecycle _domain_id _ts lifecycle_event _data =
   | Runtime_events.EV_RING_STOP ->
       wall_time.end_time <- Unix.gettimeofday ();
       let times = Unix.times () in
-      total_cpu_time := times.tms_utime +. times.tms_cutime
+      Atomic.set total_cpu_time (times.tms_utime +. times.tms_cutime)
   | _ -> ()
 
 let print_percentiles json output hist =
@@ -51,7 +51,8 @@ let print_percentiles json output hist =
   let oc = match output with Some s -> open_out s | None -> stderr in
   let to_sec x = float_of_int x /. 1000000000. in
   let real_time = wall_time.end_time -. wall_time.start_time in
-  let gc_time = to_sec !total_gc_time in
+  let gc_time = to_sec (Atomic.get total_gc_time) in
+  let total_cpu_time = Atomic.get total_cpu_time in
   if json then
     let distribs =
       List.init (Array.length percentiles) (fun i ->
@@ -70,10 +71,10 @@ let print_percentiles json output hist =
     Printf.fprintf oc "\n";
     Printf.fprintf oc "Execution times:\n";
     Printf.fprintf oc "Wall time (s):\t%.2f\n" real_time;
-    Printf.fprintf oc "CPU time (s):\t%.2f\n" !total_cpu_time;
+    Printf.fprintf oc "CPU time (s):\t%.2f\n" total_cpu_time;
     Printf.fprintf oc "GC time (s):\t%.2f\n" gc_time;
     Printf.fprintf oc "GC overhead (%% of CPU time):\t%.2f%%\n"
-      (gc_time /. !total_cpu_time *. 100.);
+      (gc_time /. total_cpu_time *. 100.);
     Printf.fprintf oc "\n";
     Printf.fprintf oc "GC time per domain (s):\n";
     Array.iteri
@@ -240,7 +241,8 @@ let gc_stats json output exec_args =
         Hashtbl.remove current_event ring_id;
         let latency = Int64.to_int (Int64.sub (Ts.to_int64 ts) saved_ts) in
         assert (H.record_value hist latency);
-        total_gc_time := !total_gc_time + latency;
+        let _ = Atomic.fetch_and_add total_gc_time latency in
+        (* total_gc_time := !total_gc_time + latency; *)
         domain_gc_times.(ring_id) <- domain_gc_times.(ring_id) + latency
     | _ -> ()
   in
