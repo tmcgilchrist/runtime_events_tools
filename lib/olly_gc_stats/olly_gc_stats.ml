@@ -107,7 +107,7 @@ let print_percentiles json output hist =
         Printf.fprintf oc "%.4f \t %.2f\n" p
           (float_of_int (H.value_at_percentile hist p) |> ms)))
 
-let gc_stats poll_sleep json output exec_args =
+let gc_stats poll_sleep json output runtime_events_dir exec_args =
   let current_event = Hashtbl.create 13 in
   let hist =
     H.init ~lowest_discernible_value:10 ~highest_trackable_value:10_000_000_000
@@ -148,6 +148,7 @@ let gc_stats poll_sleep json output exec_args =
         init;
         cleanup;
         poll_sleep;
+        runtime_events_dir;
       }
       exec_args
   with Fail msg ->
@@ -171,6 +172,15 @@ let gc_stats_cmd =
       value
       & opt float 0.1 (* Poll at 10Hz by default *)
       & info [ "poll_sleep" ] ~docv:"poll_sleep" ~doc)
+  in
+
+  let runtime_events_dir =
+    let doc =
+      "Sets the directory where the .events files containing the runtime event \
+       tracing system’s ring buffers will be located.\n\n\
+      \               If not specified a temporary directory will be used."
+    in
+    Arg.(value & opt (some string) None & info [ "d"; "dir" ] ~docv:"dir" ~doc)
   in
 
   let output_option =
@@ -216,4 +226,4 @@ let gc_stats_cmd =
   Cmd.v info
     Term.(
       const gc_stats $ poll_sleep_option $ json_option $ output_option
-      $ exec_args 0)
+      $ runtime_events_dir $ exec_args 0)
