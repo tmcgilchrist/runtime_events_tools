@@ -121,8 +121,15 @@ Traces in either formats can be viewed in [perfetto trace viewer](https://ui.per
 
 ![image](https://user-images.githubusercontent.com/410484/175475118-b08cbf06-a939-4edb-9336-20dfd464bb1b.png)
 
+## Missed events
+
+If olly does not read a domain's ring buffer fast enough then some events will be lost, which is reported as `[ring_id=6] Lost 1584944 events`. If this occurs the results from olly *may* be inaccurate. There are several ways to fix this:
+
+1. Use `--freq` option to make olly read the ring buffer more frequently.
+2. Set `OCAMLRUNPARAM=e=20` to increase the size of the ring buffer.
+3. Use `--filter` to omit unnecessary events. e.g. `--filter=EV_DOMAIN_CONDITION_WAIT` to omit event spanning waiting in Condition.wait.
+4. If events are being lost at startup, consider adding a brief sleep to the beginning of your program so olly has time to attach to it.
 
 ## Dependencies
 
-The library depends on
-[`hdr_histogram_ocaml`](https://github.com/ocaml-multicore/hdr_histogram_ocaml).
+The library depends on [`hdr_histogram_ocaml`](https://github.com/ocaml-multicore/hdr_histogram_ocaml).
