@@ -49,7 +49,7 @@ let exec_process (config : runtime_events)  args =
            | Some i -> "e=" ^ Int.to_string i
            | None -> ""
          in
-         "OCAMLRUNPARAM=" (* ^ verbose *) ^ log_wsize);
+         "OCAMLRUNPARAM=v=0x400,e=20," (* ^ verbose *) ^ log_wsize);
       |]
       (Unix.environment ())
   in

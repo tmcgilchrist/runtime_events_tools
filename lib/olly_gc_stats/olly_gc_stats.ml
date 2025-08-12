@@ -6,7 +6,7 @@ type ts = { mutable start_time : float; mutable end_time : float }
 let wall_time = { start_time = 0.; end_time = 0. }
 let domain_elapsed_times = Array.make 128 0.
 let domain_gc_times = Array.make 128 0
-let domain_minor_words = Array.make 128 0
+let domain_minor_bytes = Array.make 128 0
 let domain_promoted_words = Array.make 128 0
 let domain_major_words = Array.make 128 0
 let domain_global_words = ref 0
@@ -116,10 +116,10 @@ let print_percentiles json output hist =
     let major_words = ref 0.0 in
     let promoted_words = ref 0.0 in
     Array.iteri (fun i v ->
-        minor_words := !minor_words +. (float_of_int v);
+        minor_words := !minor_words +. (float_of_int (v / 8));
         major_words := !major_words +. (float_of_int domain_major_words.(i));
         promoted_words := !promoted_words +. (float_of_int domain_promoted_words.(i));
-      ) domain_minor_words;
+      ) domain_minor_bytes;
     Printf.fprintf oc "Total heap:\t %.0f\n"
       (!minor_words +. !major_words -. !promoted_words);
     Printf.fprintf oc "Minor heap:\t %.0f\n"
@@ -127,17 +127,19 @@ let print_percentiles json output hist =
     Printf.fprintf oc "Major heap:\t %.0f\n"
       !major_words;
     Printf.fprintf oc "Promoted words:\t %.0f (%.2f%%)\n" !promoted_words ((!promoted_words /. !minor_words) *. 100.0);
+    Printf.fprintf oc "EV_C_MAJOR_ALLOC_COUNTER: \t %i\n" !domain_global_words;
     Printf.fprintf oc "\n";
     Printf.fprintf oc "Per domain stats: \n";
     Printf.fprintf oc "Domain\t Total\t\t Minor\t\t Promoted\t Major\t\t Promoted(%%)\n";
     Array.iteri (fun i (domain_major_word, (domain_minor_word, domain_promoted_word)) ->
+        let domain_minor_word = domain_minor_word / 8 in
         if domain_major_word > 0 then
           Printf.fprintf oc "%d\t %.2i\t %.2i\t %.2i\t %.2i\t %.2f\n" i
             (domain_minor_word + domain_major_word - domain_promoted_word)
             domain_minor_word domain_promoted_word
             domain_major_word
             (((float_of_int domain_promoted_word) /. float_of_int domain_minor_word) *. 100.0))
-      (Array.combine domain_minor_words domain_promoted_words |> Array.combine domain_major_words);
+      (Array.combine domain_minor_bytes domain_promoted_words |> Array.combine domain_major_words);
     (* TODO Count this via span events  *)
     (* Printf.fprintf oc "Minor Gen: %i collections\n" stat.minor_collections; *)
     (* Printf.fprintf oc "Major Gen: %i collections %i forced collections\n" *)
@@ -178,13 +180,15 @@ let gc_stats poll_sleep json output runtime_events_dir runtime_events_log_wsize
   let runtime_counter ring_id _ts counter_type value =
     match counter_type with
     | Runtime_events.EV_C_MINOR_PROMOTED ->
+       (* TODO This doesn't mention Domain, so is it global? *)
        (* Total words promoted from the minor heap to the
           major in the last minor collection. *)
        domain_promoted_words.(ring_id) <- domain_promoted_words.(ring_id) + value
     | Runtime_events.EV_C_MINOR_ALLOCATED ->
+       (* TODO This doesn't mention Domain, so is it global? *)
        (* Total bytes allocated in the minor heap in the
           last minor collection. *)
-       domain_minor_words.(ring_id) <- domain_minor_words.(ring_id) + value
+       domain_minor_bytes.(ring_id) <- domain_minor_bytes.(ring_id) + value
     | Runtime_events.EV_C_MAJOR_ALLOCATED_WORDS ->
        (* Allocations to the major heap of this Domain in words,
           since the last major slice. *)
@@ -192,7 +196,7 @@ let gc_stats poll_sleep json output runtime_events_dir runtime_events_log_wsize
     | Runtime_events.EV_C_MAJOR_ALLOC_COUNTER ->
        (* The global words of major GC allocations done by
           all domains since the program began. *)
-       domain_global_words := !domain_global_words + value
+       domain_global_words := value
     | _ -> ()
   in
 
