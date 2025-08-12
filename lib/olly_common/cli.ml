@@ -33,6 +33,32 @@ let help man_format cmds topic =
           in
           `Ok (Manpage.print man_format Format.std_formatter page))
 
+let runtime_events_dir =
+  let doc =
+    "Sets the directory where the .events files containing the runtime event \
+     tracing system’s ring buffers will be located.\n\n\
+    \               If not specified a temporary directory will be used."
+  in
+  Arg.(value & opt (some string) None & info [ "d"; "dir" ] ~docv:"dir" ~doc)
+
+let runtime_events_log_wsize =
+  let doc =
+    "Size of the per-domain runtime events ring buffers in log powers of two \
+     words. Defaults to 16."
+  in
+  Arg.(
+    value & opt (some int) None & info [ "log-wsize" ] ~docv:"log-wsize" ~doc)
+
+let poll_sleep_option =
+  let doc =
+    "Set the interval that olly sleeps, after performing a [read_poll]. A \
+     value of 0.0 will skip sleeping altogether."
+  in
+  Arg.(
+    value
+    & opt float 0.1 (* Poll at 10Hz by default *)
+    & info [ "poll_sleep" ] ~docv:"poll_sleep" ~doc)
+
 let exec_args p =
   let exec_and_args, ea_docv =
     let doc = "Executable and arguments to trace." in

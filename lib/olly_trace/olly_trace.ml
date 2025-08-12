@@ -1,7 +1,7 @@
 module Format = Olly_format_backend
 
 let trace poll_sleep fmt trace_filename emit_counter runtime_events_dir
-    exec_args =
+    runtime_events_log_wsize exec_args =
   let open Format.Event in
   let tracer = Format.create fmt ~filename:trace_filename in
   let runtime_phase kind ring_id ts phase =
@@ -42,6 +42,7 @@ let trace poll_sleep fmt trace_filename emit_counter runtime_events_dir
       cleanup;
       poll_sleep;
       runtime_events_dir;
+      runtime_events_log_wsize;
     }
     exec_args
 
@@ -55,26 +56,6 @@ let trace_cmd format_list =
   let emit_counter =
     let doc = "Emit runtime counter events." in
     Arg.(value & flag & info [ "c"; "emit-counters" ] ~doc)
-  in
-
-  let poll_sleep_option =
-    let doc =
-      "Set the interval that olly sleeps, after performing a [read_poll]. A \
-       value of 0.0 will skip sleeping altogether."
-    in
-    Arg.(
-      value
-      & opt float 0.1 (* Poll at 10Hz by default *)
-      & info [ "poll_sleep" ] ~docv:"poll_sleep" ~doc)
-  in
-
-  let runtime_events_dir =
-    let doc =
-      "Sets the directory where the .events files containing the runtime event \
-       tracing system’s ring buffers will be located.\n\n\
-      \               If not specified a temporary directory will be used."
-    in
-    Arg.(value & opt (some string) None & info [ "d"; "dir" ] ~docv:"dir" ~doc)
   in
 
   let format_option =
@@ -107,4 +88,5 @@ let trace_cmd format_list =
   Cmd.v info
     Term.(
       const trace $ poll_sleep_option $ format_option $ trace_filename
-      $ emit_counter $ runtime_events_dir $ exec_args 1)
+      $ emit_counter $ runtime_events_dir $ runtime_events_log_wsize
+      $ exec_args 1)
