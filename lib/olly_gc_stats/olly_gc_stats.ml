@@ -9,7 +9,12 @@ let domain_gc_times = Array.make 128 0
 let domain_minor_bytes = Array.make 128 0
 let domain_promoted_words = Array.make 128 0
 let domain_major_words = Array.make 128 0
+let ev_c_minor_allocated = ref 0
 let domain_global_words = ref 0
+let minor_collections = ref 0
+let major_collections = ref 0
+let forced_major_collections = ref 0
+let compactions = ref 0
 
 let lifecycle domain_id ts lifecycle_event _data =
   let ts = float_of_int Int64.(to_int @@ Ts.to_int64 ts) /. 1_000_000_000. in
@@ -121,12 +126,13 @@ let print_percentiles json output hist =
         promoted_words := !promoted_words +. (float_of_int domain_promoted_words.(i));
       ) domain_minor_bytes;
     Printf.fprintf oc "Total heap:\t %.0f\n"
-      (!minor_words +. !major_words -. !promoted_words);
+      (!minor_words +. !major_words (* -. !promoted_words *));
     Printf.fprintf oc "Minor heap:\t %.0f\n"
       !minor_words;
     Printf.fprintf oc "Major heap:\t %.0f\n"
       !major_words;
     Printf.fprintf oc "Promoted words:\t %.0f (%.2f%%)\n" !promoted_words ((!promoted_words /. !minor_words) *. 100.0);
+    Printf.fprintf oc "EV_C_MINOR_ALLOCATED: \t %i\n" (!ev_c_minor_allocated / 8);
     Printf.fprintf oc "EV_C_MAJOR_ALLOC_COUNTER: \t %i\n" !domain_global_words;
     Printf.fprintf oc "\n";
     Printf.fprintf oc "Per domain stats: \n";
@@ -135,17 +141,17 @@ let print_percentiles json output hist =
         let domain_minor_word = domain_minor_word / 8 in
         if domain_major_word > 0 then
           Printf.fprintf oc "%d\t %.2i\t %.2i\t %.2i\t %.2i\t %.2f\n" i
-            (domain_minor_word + domain_major_word - domain_promoted_word)
+            (domain_minor_word + domain_major_word (* - domain_promoted_word *))
             domain_minor_word domain_promoted_word
             domain_major_word
             (((float_of_int domain_promoted_word) /. float_of_int domain_minor_word) *. 100.0))
       (Array.combine domain_minor_bytes domain_promoted_words |> Array.combine domain_major_words);
     (* TODO Count this via span events  *)
-    (* Printf.fprintf oc "Minor Gen: %i collections\n" stat.minor_collections; *)
-    (* Printf.fprintf oc "Major Gen: %i collections %i forced collections\n" *)
-    (*   stat.major_collections stat.forced_major_collections; *)
+    Printf.fprintf oc "Minor Gen: %i collections\n" !minor_collections;
+    Printf.fprintf oc "Major Gen: %i collections %i forced collections\n"
+      !major_collections !forced_major_collections;
     (* TODO Track this via an explicit counter.  *)
-    (* Printf.fprintf oc "Compactions: %i\n" stat.compactions *))
+    Printf.fprintf oc "Compactions: %i\n" !compactions)
 
 let gc_stats poll_sleep json output runtime_events_dir runtime_events_log_wsize
     exec_args =
@@ -163,6 +169,19 @@ let gc_stats poll_sleep json output runtime_events_dir runtime_events_log_wsize
     | _ -> false
   in
   let runtime_begin ring_id ts phase =
+    if phase == Runtime_events.EV_EXPLICIT_GC_COMPACT && ring_id == 0 then
+      incr compactions;
+
+    if phase == Runtime_events.EV_MINOR && ring_id == 0 then
+      incr minor_collections;
+
+    if phase == Runtime_events.EV_MAJOR_GC_STW && ring_id == 0 then
+      incr major_collections;
+
+    if (phase == Runtime_events.EV_EXPLICIT_GC_MAJOR ||
+        phase == Runtime_events.EV_EXPLICIT_GC_FULL_MAJOR) && ring_id == 0 then
+      incr forced_major_collections;
+
     if is_gc_phase phase then
       match Hashtbl.find_opt current_event ring_id with
       | None -> Hashtbl.add current_event ring_id (phase, Ts.to_int64 ts)
@@ -179,15 +198,21 @@ let gc_stats poll_sleep json output runtime_events_dir runtime_events_log_wsize
   in
   let runtime_counter ring_id _ts counter_type value =
     match counter_type with
+
     | Runtime_events.EV_C_MINOR_PROMOTED ->
        (* TODO This doesn't mention Domain, so is it global? *)
        (* Total words promoted from the minor heap to the
           major in the last minor collection. *)
+       Printf.printf "EV_C_MINOR_PROMOTED: ring_id:%i timestamp:%Li\n" ring_id
+         (Runtime_events.Timestamp.to_int64 _ts);
        domain_promoted_words.(ring_id) <- domain_promoted_words.(ring_id) + value
     | Runtime_events.EV_C_MINOR_ALLOCATED ->
        (* TODO This doesn't mention Domain, so is it global? *)
        (* Total bytes allocated in the minor heap in the
           last minor collection. *)
+       Printf.printf "EV_C_MINOR_ALLOCATED: ring_id:%i timestamp:%Li\n" ring_id
+         (Runtime_events.Timestamp.to_int64 _ts);
+       ev_c_minor_allocated := !ev_c_minor_allocated + value;
        domain_minor_bytes.(ring_id) <- domain_minor_bytes.(ring_id) + value
     | Runtime_events.EV_C_MAJOR_ALLOCATED_WORDS ->
        (* Allocations to the major heap of this Domain in words,
