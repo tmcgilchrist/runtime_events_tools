@@ -4,7 +4,7 @@
  (libraries olly_common hdr_histogram))
 
 (rule
- (deps olly_gc_stats.5.0.ml)
+ (deps gc_stats_impl.5.0.ml)
  (target olly_gc_impl.ml)
  (enabled_if
   (< %{ocaml_version} 5.3))
@@ -12,16 +12,8 @@
   (copy %{deps} %{target})))
 
 (rule
- (deps olly_gc_stats.5.3.ml)
+ (deps gc_stats_impl.5.3.ml)
  (target olly_gc_impl.ml)
- (enabled_if
-  (>= %{ocaml_version} 5.3))
- (action
-  (copy %{deps} %{target})))
-
-(rule
- (deps gc_counters_shim.5.3.ml)
- (target gc_counters_shim.ml)
  (enabled_if
   (and
    (>= %{ocaml_version} 5.3)
@@ -30,8 +22,8 @@
   (copy %{deps} %{target})))
 
 (rule
- (deps gc_counters_shim.5.5.ml)
- (target gc_counters_shim.ml)
+ (deps gc_stats_impl.5.5.ml)
+ (target olly_gc_impl.ml)
  (enabled_if
   (>= %{ocaml_version} 5.5))
  (action
